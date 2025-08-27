@@ -1,0 +1,150 @@
+from pathlib import Path
+import urllib.request
+
+from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout, spacer)
+from enaml.widgets.api import (
+    Container, DockArea, DockItem, Feature, HGroup, Html, Label, MainWindow,
+    MPLCanvas, ObjectCombo, PushButton, VGroup, Window
+)
+from enaml.stdlib.fields import IntField
+
+from biosemi_enaml.electrode_selector_view import ElectrodeSelectorContainer
+from .io import preprocess_file
+
+
+def load_file(filename, window):
+    window.presenter.load_file(filename)
+    window.filename = filename
+
+
+enamldef PreprocessWindow(Window): popup:
+
+    modality = 'application_modal'
+    title = 'Preprocess File'
+    attr filename
+    attr window
+
+    attr time_lb = -2
+    attr time_ub = 14
+    attr trigger = 'Erg2'
+
+    Container:
+        VGroup:
+            HGroup:
+                align_widths = False
+                padding = 0
+                Label:
+                    text = 'Epoch from'
+                IntField:
+                    value := popup.time_lb
+                Label:
+                    text = 'msec'
+                IntField:
+                    value := popup.time_ub
+                Label:
+                    text = 'to msec re. trigger'
+            HGroup:
+                align_widths = False
+                padding = 0
+                trailing_spacer = spacer(0)
+                Label:
+                    text = 'Trigger on'
+                ObjectCombo:
+                    items = ['Erg2', 'Status[9]']
+                    selected := popup.trigger
+            HGroup:
+                leading_spacer = spacer(0)
+                PushButton:
+                    text = 'Cancel'
+                    clicked ::
+                        popup.close()
+                PushButton:
+                    text = 'Ok'
+                    clicked ::
+                        processed_filename = preprocess_file(
+                            popup.filename,
+                            popup.trigger,
+                            popup.time_lb,
+                            popup.time_ub,
+                        )
+                        load_file(processed_filename, window)
+                        popup.close()
+
+
+
+enamldef Main(MainWindow): window:
+
+    attr presenter
+    attr filename
+
+    title << 'NCRAR EEG Viewer' if not filename else \
+        'NCRAR EEG Viewer :: ' + filename.name
+
+    Container:
+        DockArea:
+            features = Feature.DropEnabled
+
+            drag_enter => (event):
+                if event.mime_data().has_format('text/uri-list'):
+                    event.accept_proposed_action()
+
+            drop => (event):
+                text = event.mime_data().data('text/uri-list').decode('utf-8')
+                filenames = []
+                for t in text.strip().split('\n'):
+                    t = urllib.parse.unquote(t).strip()
+                    fragments = urllib.parse.urlsplit(t)
+                    path = Path(urllib.request.url2pathname(fragments.path))
+                    filenames.append(path)
+
+                filename = filenames[0]
+                if not filename.name.endswith('-epo.fif'):
+                    popup = PreprocessWindow(filename=filename, window=window)
+                    popup.show()
+                else:
+                    load_file(filename, window)
+
+            layout = AreaLayout(
+                HSplitLayout('selector', 'plot'),
+                dock_bars=[DockBarLayout('help', position='left')],
+            )
+            DockItem:
+                name = 'selector'
+                title = 'Channels'
+                closable = False
+                Container:
+                    ElectrodeSelectorContainer: selector_container:
+                        selector << presenter.selector
+                    HGroup:
+                        align_widths = False
+                        padding = 0
+                        trailing_spacer = spacer(0)
+                        Label:
+                            text = 'Filter from'
+                        IntField:
+                            value := presenter.filt_lb
+                        Label:
+                            text = 'to'
+                        IntField:
+                            value := presenter.filt_ub
+                        Label:
+                            text = 'Hz'
+            DockItem:
+                name = 'plot'
+                title = 'EEG'
+                closable = False
+                Container:
+                    MPLCanvas:
+                        figure << presenter.figure
+
+            DockItem:
+                name = 'help'
+                title = 'Help'
+                closable = False
+
+                Container:
+                    Html:
+                        source = ''
+                        #source = resources.files('cochleogram') \
+                        #    .joinpath('instructions.html') \
+                        #    .read_text()
