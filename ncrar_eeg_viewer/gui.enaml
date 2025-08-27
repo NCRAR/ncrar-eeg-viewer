@@ -1,6 +1,9 @@
+from importlib import resources
 from pathlib import Path
 import urllib.request
 
+from enaml.icon import Icon, IconImage
+from enaml.image import Image
 from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout, spacer)
 from enaml.widgets.api import (
     Container, DockArea, DockItem, Feature, HGroup, Html, Label, MainWindow,
@@ -15,6 +18,14 @@ from .io import preprocess_file
 def load_file(filename, window):
     window.presenter.load_file(filename)
     window.filename = filename
+
+
+
+def load_main_icon():
+    data = resources.files('ncrar_eeg_viewer') \
+        .joinpath(f'main-icon.png').read_bytes()
+    icg = IconImage(image=Image(data=data))
+    return Icon(images=[icg])
 
 
 enamldef PreprocessWindow(Window): popup:
@@ -79,6 +90,7 @@ enamldef Main(MainWindow): window:
 
     title << 'NCRAR EEG Viewer' if not filename else \
         'NCRAR EEG Viewer :: ' + filename.name
+    icon = load_main_icon()
 
     Container:
         DockArea:
