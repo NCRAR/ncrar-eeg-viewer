@@ -82,7 +82,6 @@ enamldef PreprocessWindow(Window): popup:
                         popup.close()
 
 
-
 enamldef Main(MainWindow): window:
 
     attr presenter
