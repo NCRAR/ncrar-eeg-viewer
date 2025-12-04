@@ -61,7 +61,7 @@ enamldef PreprocessWindow(Window): popup:
                 Label:
                     text = 'Trigger on'
                 ObjectCombo:
-                    items = ['Erg2', 'Status[9]']
+                    items = ['Erg1', 'Erg2', 'Status[9]']
                     selected := popup.trigger
             HGroup:
                 leading_spacer = spacer(0)

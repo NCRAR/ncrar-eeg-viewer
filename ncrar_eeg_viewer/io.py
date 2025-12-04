@@ -53,6 +53,9 @@ def preprocess_file(filename, trigger, time_lb, time_ub, reprocess=False):
     if trigger == 'erg2':
         trigs, time = raw.copy().pick(['Erg2'])['Erg2']
         trigs = trigs[0]
+    elif trigger == 'erg1':
+        trigs, time = raw.copy().pick(['Erg1'])['Erg1']
+        trigs = trigs[0]
     elif trigger == 'status[9]':
         status, time = raw.copy().pick(['Status'])['Status']
         trigs = (status[0].astype('i') >> 8) & 0b1
