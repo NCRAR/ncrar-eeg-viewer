@@ -2,23 +2,25 @@ from importlib import resources
 from pathlib import Path
 import urllib.request
 
+from atom.api import set_default, Typed
+from enaml.core.api import d_, Looper
 from enaml.icon import Icon, IconImage
 from enaml.image import Image
-from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout, spacer)
+from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout, VSplitLayout, align, hbox, spacer)
 from enaml.widgets.api import (
-    Container, DockArea, DockItem, Feature, HGroup, Html, Label, MainWindow,
-    MPLCanvas, ObjectCombo, PushButton, VGroup, Window
+    Action, CheckBox, Container, DockArea, DockItem, Feature, Field,
+    FileDialogEx, Form, GroupBox, HGroup, Html, Label, MainWindow, Menu,
+    MenuBar, MPLCanvas, ObjectCombo, PushButton, RawWidget, VGroup, Window
 )
-from enaml.stdlib.fields import IntField
+from enaml.stdlib.fields import IntField, FloatField
+import pyqtgraph as pg
 
 from biosemi_enaml.electrode_selector_view import ElectrodeSelectorContainer
-from .io import preprocess_file
 
 
 def load_file(filename, window):
     window.presenter.load_file(filename)
     window.filename = filename
-
 
 
 def load_main_icon():
@@ -28,58 +30,24 @@ def load_main_icon():
     return Icon(images=[icg])
 
 
-enamldef PreprocessWindow(Window): popup:
+class PGCanvas(RawWidget):
 
-    modality = 'application_modal'
-    title = 'Preprocess File'
-    attr filename
-    attr window
+    hug_width = set_default('ignore')
+    hug_height = set_default('ignore')
 
-    attr time_lb = -2
-    attr time_ub = 14
-    attr trigger = 'Erg2'
+    view = Typed(pg.GraphicsView)
+    component = d_(Typed(pg.GraphicsWidget))
+    minimum_size = (600, 400)
 
-    Container:
-        VGroup:
-            HGroup:
-                align_widths = False
-                padding = 0
-                Label:
-                    text = 'Epoch from'
-                IntField:
-                    value := popup.time_lb
-                Label:
-                    text = 'msec'
-                IntField:
-                    value := popup.time_ub
-                Label:
-                    text = 'to msec re. trigger'
-            HGroup:
-                align_widths = False
-                padding = 0
-                trailing_spacer = spacer(0)
-                Label:
-                    text = 'Trigger on'
-                ObjectCombo:
-                    items = ['Erg1', 'Erg2', 'Status[9]']
-                    selected := popup.trigger
-            HGroup:
-                leading_spacer = spacer(0)
-                PushButton:
-                    text = 'Cancel'
-                    clicked ::
-                        popup.close()
-                PushButton:
-                    text = 'Ok'
-                    clicked ::
-                        processed_filename = preprocess_file(
-                            popup.filename,
-                            popup.trigger,
-                            popup.time_lb,
-                            popup.time_ub,
-                        )
-                        load_file(processed_filename, window)
-                        popup.close()
+    def create_widget(self, parent):
+        # This color ensures that it blends into the default DockItem
+        # background color and is most esthetically pleasing.
+        self.view = pg.GraphicsView(parent, background=(240, 240, 240))
+        self.view.setCentralItem(self.component)
+        return self.view
+
+    def observe_component(self, event):
+        self.view.setCentralItem(event['value'])
 
 
 enamldef Main(MainWindow): window:
@@ -90,6 +58,22 @@ enamldef Main(MainWindow): window:
     title << 'NCRAR EEG Viewer' if not filename else \
         'NCRAR EEG Viewer :: ' + filename.name
     icon = load_main_icon()
+
+    MenuBar:
+        Menu:
+            title = '&File'
+            Action:
+                text = 'Save settings'
+                triggered ::
+                    path = FileDialogEx.get_save_file_name(window)
+                    if path:
+                        presenter.save_config(Path(path))
+            Action:
+                text = 'Load settings'
+                triggered ::
+                    path = FileDialogEx.get_open_file_name(window)
+                    if path:
+                        presenter.load_config(Path(path))
 
     Container:
         DockArea:
@@ -107,16 +91,13 @@ enamldef Main(MainWindow): window:
                     fragments = urllib.parse.urlsplit(t)
                     path = Path(urllib.request.url2pathname(fragments.path))
                     filenames.append(path)
-
-                filename = filenames[0]
-                if not filename.name.endswith('-epo.fif'):
-                    popup = PreprocessWindow(filename=filename, window=window)
-                    popup.show()
-                else:
-                    load_file(filename, window)
+                filename = load_file(filenames[0])
 
             layout = AreaLayout(
-                HSplitLayout('selector', 'plot'),
+                HSplitLayout(
+                    VSplitLayout('selector', 'settings'),
+                    'plot',
+                ),
                 dock_bars=[DockBarLayout('help', position='left')],
             )
             DockItem:
@@ -126,27 +107,98 @@ enamldef Main(MainWindow): window:
                 Container:
                     ElectrodeSelectorContainer: selector_container:
                         selector << presenter.selector
-                    HGroup:
-                        align_widths = False
-                        padding = 0
-                        trailing_spacer = spacer(0)
-                        Label:
-                            text = 'Filter from'
-                        IntField:
-                            value := presenter.filt_lb
-                        Label:
-                            text = 'to'
-                        IntField:
-                            value := presenter.filt_ub
-                        Label:
-                            text = 'Hz'
+                        requested_height = 450
+                        requested_width = 450
             DockItem:
                 name = 'plot'
                 title = 'EEG'
                 closable = False
                 Container:
-                    MPLCanvas:
-                        figure << presenter.figure
+                    PGCanvas:
+                        component << presenter.container
+            DockItem:
+                name = 'settings'
+                title = 'Settings'
+                closable = False
+                Container:
+                    VGroup:
+                        padding = 0
+                        GroupBox:
+                            title = 'Trigger Information'
+                            padding = 0
+                            Container:
+                                constraints = [
+                                    hbox(*self.visible_widgets()[:-1], spacer(0), self.visible_widgets()[-1]),
+                                    align('v_center', *self.visible_widgets()),
+                                ]
+                                Label:
+                                    text = 'Channel'
+                                ObjectCombo:
+                                    items = ['Erg1', 'Erg2', 'Status[9]']
+                                    selected := presenter.trigger_channel
+                                PushButton:
+                                    text = 'Scan'
+                                    enabled << presenter.raw is not None
+                                    clicked ::
+                                        presenter.find_triggers()
+                            Container:
+                                Looper:
+                                    iterable << presenter.event_config.items()
+                                    HGroup:
+                                        align_widths = False
+                                        padding = 0
+                                        CheckBox:
+                                            checked = loop_item[1]['visible']
+                                            checked ::
+                                                presenter.event_config[loop_item[0]]['visible'] = checked
+                                                presenter.update_plots()
+                                        Label:
+                                            text = loop_item[0]
+                                        Field:
+                                            text = loop_item[1]['label']
+                                            text ::
+                                                presenter.event_config[loop_item[0]]['label'] = text
+                                                presenter.update_plots()
+                        GroupBox:
+                            title = 'Processing'
+                            HGroup:
+                                share_layout = True
+                                align_widths = False
+                                padding = 0
+                                trailing_spacer = spacer(0)
+                                Label:
+                                    text = 'Filter from'
+                                FloatField:
+                                    value := presenter.filt_lb
+                                Label:
+                                    text = 'to'
+                                FloatField:
+                                    value := presenter.filt_ub
+                                Label:
+                                    text = 'Hz'
+                            HGroup:
+                                share_layout = True
+                                align_widths = False
+                                padding = 0
+                                trailing_spacer = spacer(0)
+                                Label:
+                                    text = 'Epoch from'
+                                FloatField:
+                                    value := presenter.time_lb
+                                Label:
+                                    text = 'msec'
+                                FloatField:
+                                    value := presenter.time_ub
+                                Label:
+                                    text = 'to msec re. trigger'
+                            HGroup:
+                                share_layout = True
+                                leading_spacer = spacer(0)
+                                PushButton:
+                                    text = 'Apply'
+                                    enabled << presenter.raw_annotated is not None
+                                    clicked ::
+                                        presenter.reprocess()
 
             DockItem:
                 name = 'help'

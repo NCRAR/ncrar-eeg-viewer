@@ -1,68 +1,66 @@
+import json
 from pathlib import Path
 
 import mne.io
 from ncrar_audio import triggers
 
+from .configs import get_config
 
-def set_annotations(raw, time, s):
-    trig_samples = triggers.extract_triggers(s, group_window=320)
-    pos_polarity = trig_samples[1]
-    neg_polarity = trig_samples[2]
-    pos_timestamps = time[pos_polarity]
-    neg_timestamps = time[neg_polarity]
 
-    # Convert into an annotations object
-    annotations = mne.Annotations(
-        onset=pos_timestamps,
+def set_annotations(raw, channel, group_window=320, trig_codes=None,
+                    inplace=False):
+    if trig_codes is None:
+        trig_codes = {}
+
+    if channel.startswith('Status'):
+        raise NotImplementedError
+        # Something along these lines. Will be in the format Status[c]
+        status, time = raw.copy().pick(['Status'])['Status']
+        trigs = (status[0].astype('i') >> (c-1)) & 0b1
+    else:
+        s_trig, time = raw.copy().pick([channel])[channel]
+        s_trig = s_trig[0]
+
+    trig_samples = triggers.extract_triggers(s_trig, group_window=group_window)
+    onsets = []
+    descriptions = []
+    for k, v in trig_samples.items():
+        onsets.extend(time[v])
+        d = trig_codes.get(k, str(k))
+        descriptions.extend([d]*len(v))
+    annotation = mne.Annotations(
+        onset=onsets,
         duration=0.05,
-        description="1",
+        description=descriptions,
     )
-
-    annotations.append(
-        onset=neg_timestamps,
-        duration= 0.05,
-        description="2",
-    )
-
-    return raw.set_annotations(annotations)
+    if inplace:
+        return raw.set_annotations(annotation, verbose=False)
+    else:
+        return raw.copy().set_annotations(annotation, verbose=False)
 
 
-def get_epoch_data(raw, time_lb=-2e-3, time_ub=14e-3):
-    events, event_id = mne.events_from_annotations(raw, event_id={'1': 0, '2': 1})
+def get_epoch_data(raw, tmin, tmax, baseline):
+    events, event_id = mne.events_from_annotations(raw, verbose=False)
     epochs = mne.Epochs(
         raw,
         events,
         event_id=event_id,
-        tmin=time_lb,
-        tmax=time_ub,
-        #baseline=(None, 0), # default: 'none'=beginning of data until time point 0
-        #reject={'eeg': 40e-6}, #peak-to-peak (20 microvolt peak reject)
+        tmin=tmin,
+        tmax=tmax,
+        baseline=baseline,
+        verbose=False,
     )
     return epochs
 
 
-def preprocess_file(filename, trigger, time_lb, time_ub, reprocess=False):
+def auto_preprocess_file(filename):
     filename = Path(filename)
-    epoch_filename = filename.parent / f'{filename.stem}_{trigger}_{time_lb}_to_{time_ub}ms-epo.fif'
-    if epoch_filename.exists() and not reprocess:
-        return epoch_filename
+    name, config = get_config(filename)
 
     raw = mne.io.read_raw_bdf(filename, preload=True)
+    raw = set_annotations(raw, **config['trigger'])
+    epochs = get_epoch_data(raw, **config['epoch'])
 
-    trigger = trigger.lower()
-    if trigger == 'erg2':
-        trigs, time = raw.copy().pick(['Erg2'])['Erg2']
-        trigs = trigs[0]
-    elif trigger == 'erg1':
-        trigs, time = raw.copy().pick(['Erg1'])['Erg1']
-        trigs = trigs[0]
-    elif trigger == 'status[9]':
-        status, time = raw.copy().pick(['Status'])['Status']
-        trigs = (status[0].astype('i') >> 8) & 0b1
-
-    set_annotations(raw, time, trigs)
-    epochs = get_epoch_data(raw, time_lb*1e-3, time_ub*1e-3)
-    epochs.save(epoch_filename, overwrite=True)
     return epoch_filename
 
 

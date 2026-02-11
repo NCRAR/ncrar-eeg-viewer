@@ -37,6 +37,7 @@ def main():
 
     parser = argparse.ArgumentParser("ncrear-eeg-viewer")
     parser.add_argument("path", nargs='?')
+    parser.add_argument('--settings')
     args = parser.parse_args()
 
     app = QtApplication()
@@ -44,6 +45,11 @@ def main():
 
     presenter = Presenter()
     view = Main(presenter=presenter)
+
+    if args.settings is not None:
+        presenter.load_config(args.settings)
+    if args.path is not None:
+        presenter.load_file(args.path)
 
     view.show()
     app.start()
