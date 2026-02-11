@@ -7,8 +7,8 @@ from ncrar_audio import triggers
 from .configs import get_config
 
 
-def set_annotations(raw, channel, group_window=320, trig_codes=None,
-                    inplace=False):
+def get_event_annotations(raw, channel, group_window=320, trig_codes=None,
+                          inplace=False):
     if trig_codes is None:
         trig_codes = {}
 
@@ -28,15 +28,12 @@ def set_annotations(raw, channel, group_window=320, trig_codes=None,
         onsets.extend(time[v])
         d = trig_codes.get(k, str(k))
         descriptions.extend([d]*len(v))
-    annotation = mne.Annotations(
+    return mne.Annotations(
         onset=onsets,
         duration=0.05,
         description=descriptions,
+        orig_time=raw.info['meas_date'],
     )
-    if inplace:
-        return raw.set_annotations(annotation, verbose=False)
-    else:
-        return raw.copy().set_annotations(annotation, verbose=False)
 
 
 def get_epoch_data(raw, tmin, tmax, baseline):
@@ -51,27 +48,3 @@ def get_epoch_data(raw, tmin, tmax, baseline):
         verbose=False,
     )
     return epochs
-
-
-def auto_preprocess_file(filename):
-    filename = Path(filename)
-    name, config = get_config(filename)
-
-    raw = mne.io.read_raw_bdf(filename, preload=True)
-    raw = set_annotations(raw, **config['trigger'])
-    epochs = get_epoch_data(raw, **config['epoch'])
-
-    return epoch_filename
-
-
-def preprocess():
-    import argparse
-    parser = argparse.ArgumentParser('ncrar-eeg-preprocess')
-    parser.add_argument('filename')
-    parser.add_argument('trigger', type=str)
-    parser.add_argument('time_lb', default=-2, type=float)
-    parser.add_argument('time_ub', default=12, type=float)
-    parser.add_argument('--reprocess', action='store_true')
-    args = parser.parse_args()
-    preprocess_file(args.filename, args.trigger, args.time_lb, args.time_ub,
-                    args.reprocess)

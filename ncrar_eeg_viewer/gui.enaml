@@ -3,16 +3,21 @@ from pathlib import Path
 import urllib.request
 
 from atom.api import set_default, Typed
+from enaml.colors import Color
 from enaml.core.api import d_, Looper
 from enaml.icon import Icon, IconImage
 from enaml.image import Image
-from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout, VSplitLayout, align, hbox, spacer)
+from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout,
+                              TabLayout, VSplitLayout, align, hbox, spacer)
 from enaml.widgets.api import (
-    Action, CheckBox, Container, DockArea, DockItem, Feature, Field,
-    FileDialogEx, Form, GroupBox, HGroup, Html, Label, MainWindow, Menu,
+    Action, CheckBox, ColorDialog, Container, DockArea, DockItem, Feature,
+    Field, FileDialogEx, Form, GroupBox, HGroup, Html, Label, MainWindow, Menu,
     MenuBar, MPLCanvas, ObjectCombo, PushButton, RawWidget, VGroup, Window
 )
 from enaml.stdlib.fields import IntField, FloatField
+from enamlx.widgets.api import (TableView, TableViewRow, TableViewItem,
+                                TreeView, TreeViewItem, TreeViewColumn)
+
 import pyqtgraph as pg
 
 from biosemi_enaml.electrode_selector_view import ElectrodeSelectorContainer
@@ -74,6 +79,20 @@ enamldef Main(MainWindow): window:
                     path = FileDialogEx.get_open_file_name(window)
                     if path:
                         presenter.load_config(Path(path))
+            Action:
+                separator = True
+            Action:
+                text = 'Save analysis'
+                triggered ::
+                    path = FileDialogEx.get_save_file_name(window)
+                    if path:
+                        presenter.save_analysis(Path(path))
+            Action:
+                text = 'Load analysis'
+                triggered ::
+                    path = FileDialogEx.get_open_file_name(window)
+                    if path:
+                        presenter.load_analysis(Path(path))
 
     Container:
         DockArea:
@@ -95,7 +114,7 @@ enamldef Main(MainWindow): window:
 
             layout = AreaLayout(
                 HSplitLayout(
-                    VSplitLayout('selector', 'settings'),
+                    VSplitLayout('selector', TabLayout('analysis', 'settings')),
                     'plot',
                 ),
                 dock_bars=[DockBarLayout('help', position='left')],
@@ -186,11 +205,11 @@ enamldef Main(MainWindow): window:
                                 FloatField:
                                     value := presenter.time_lb
                                 Label:
-                                    text = 'msec'
+                                    text = 's'
                                 FloatField:
                                     value := presenter.time_ub
                                 Label:
-                                    text = 'to msec re. trigger'
+                                    text = 'to s re. trigger'
                             HGroup:
                                 share_layout = True
                                 leading_spacer = spacer(0)
@@ -199,6 +218,75 @@ enamldef Main(MainWindow): window:
                                     enabled << presenter.raw_annotated is not None
                                     clicked ::
                                         presenter.reprocess()
+
+            DockItem:
+                name = 'analysis'
+                title = 'Analysis'
+                closable = False
+
+                Container:
+                    TableView: table:
+                        horizontal_headers = ['', 'Ch.', 'Event', '', '']
+                        horizontal_sizes = [10, 20, 100, 10, 10]
+                        horizontal_stretch = False
+                        show_vertical_header = False
+                        items << presenter.plot_config
+                        Looper:
+                            iterable << range(table.visible_rows)
+                            TableViewRow:
+                                row << table.visible_row + loop_index
+                                attr item << table.items[row]
+                                TableViewItem:
+                                    checkable = True
+                                    checked := item.visible
+                                    checked ::
+                                        if item.has_crosshairs and not item.visible:
+                                            presenter.disable_crosshairs()
+                                TableViewItem:
+                                    text = item.channel
+                                TableViewItem:
+                                    text = item.event_label
+                                TableViewItem:
+                                    text = ''
+                                    background << item.color
+                                    clicked ::
+                                        dlg = ColorDialog()
+                                        if dlg.exec_():
+                                            item.color = dlg.selected_color
+                                TableViewItem:
+                                    text = '+'
+                                    text_alignment = ('center', 'center')
+                                    background << 'lightgray' if item.has_crosshairs else 'white'
+                                    clicked ::
+                                        if item.has_crosshairs:
+                                            presenter.disable_crosshairs()
+                                        else:
+                                            presenter.enable_crosshairs(item)
+
+                    TableView: analysis_table:
+                        horizontal_headers = ['', 'Ch.', 'Event', 'Point', 'Latency', 'Amplitude']
+                        horizontal_sizes = [10, 20, 100, 100, 100, 100]
+                        items << presenter.analysis
+                        show_vertical_header = False
+                        items << presenter.analysis
+                        Looper:
+                            iterable << range(analysis_table.visible_rows)
+                            TableViewRow:
+                                row << analysis_table.visible_row + loop_index
+                                attr item << analysis_table.items[row]
+                                TableViewItem:
+                                    checkable = True
+                                    #checked := item.visible
+                                TableViewItem:
+                                    text = item.channel
+                                TableViewItem:
+                                    text = item.event_label
+                                TableViewItem:
+                                    text = item.label
+                                TableViewItem:
+                                    text = f'{item.latency*1e3:.3f} ms'
+                                TableViewItem:
+                                    text = f'{item.amplitude*1e6:.3f} uV'
 
             DockItem:
                 name = 'help'
